@@ -6,6 +6,8 @@ ifndef CC
 CC = gcc
 endif
 
+$(info Compiling longmynd with GCC $(shell $(CC) -dumpfullversion) on $(shell $(CC) -dumpmachine))
+
 # Build parallel
 MAKEFLAGS += -j$(shell nproc || printf 1)
 
