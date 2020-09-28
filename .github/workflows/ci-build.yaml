@@ -33,11 +33,11 @@ jobs:
             case "${{ matrix.distro }}" in
               buster)
                 apt-get update -q -y
-                apt-get install -q -y make gcc-7 gcc-8 libusb-1.0-0-dev libasound2-dev
+                apt-get install -q -y build-essential gcc-7 gcc-8 libusb-1.0-0-dev libasound2-dev
                 ;;
               ubuntu20.04)
                 apt-get update -q -y
-                apt-get install -q -y make gcc-9 gcc-10 libusb-1.0-0-dev libasound2-dev
+                apt-get install -q -y build-essential gcc-9 gcc-10 libusb-1.0-0-dev libasound2-dev
                 ;;
             esac
 
