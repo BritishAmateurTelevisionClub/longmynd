@@ -16,7 +16,7 @@ jobs:
         # Install longmynd dependencies
         sudo apt-get install -q -y libusb-1.0-0-dev libasound2-dev
         # Install test matrix dependencies
-        sudo add-apt-repository -q -y ppa:ubuntu-toolchain-r/test
+        sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
         sudo apt-get update -q -y
         sudo apt-get install -q -y build-essential gcc-7 gcc-8 gcc-9 gcc-10
     - name: Build longmynd
