@@ -40,7 +40,7 @@ werror: all
 _print_banner:
 	@echo "Compiling longmynd with GCC $(shell $(CC) -dumpfullversion) on $(shell $(CC) -dumpmachine)"
 
-fake_read:
+fake_read: fake_read.c
 	@echo "  CC     "$@
 	@${CC} fake_read.c -o $@
 
