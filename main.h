@@ -69,6 +69,7 @@
 typedef struct {
     bool port_swap;
     uint8_t port;
+    float halfscan_ratio;
     uint8_t freq_index;
     uint8_t sr_index;
     uint32_t freq_requested[4];

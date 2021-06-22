@@ -224,6 +224,7 @@ uint8_t process_command_line(int argc, char *argv[], longmynd_config_t *config) 
 
     /* Defaults */
     config->port_swap = false;
+    config->halfscan_ratio = 1.5;
     config->beep_enabled = false;
     config->device_usb_addr = 0;
     config->device_usb_bus = 0;
@@ -272,6 +273,9 @@ uint8_t process_command_line(int argc, char *argv[], longmynd_config_t *config) 
                 config->port_swap=true;
                 param--; /* there is no data for this so go back */
                 break;
+            case 'S':
+                config->halfscan_ratio=strtof(argv[param],NULL);
+                break;
             case 'b':
                 config->beep_enabled=true;
                 param--; /* there is no data for this so go back */
@@ -287,6 +291,15 @@ uint8_t process_command_line(int argc, char *argv[], longmynd_config_t *config) 
     if ((argc-param)<2) {
         err=ERROR_ARGS_INPUT;
         printf("ERROR: Main Frequency and Main Symbol Rate not found.\n");
+    }
+
+    if (err==ERROR_NONE) {
+        /* Check Scanwidth */
+        if(config->halfscan_ratio < 0.0 || config->halfscan_ratio > 100.0)
+        {
+            err=ERROR_ARGS_INPUT;
+            printf("ERROR: Scan width not valid.\n");
+        }
     }
 
     if (err==ERROR_NONE) {
@@ -595,7 +608,7 @@ void *loop_i2c(void *arg) {
                 /* init all the modules */
                 if (*err==ERROR_NONE) *err=nim_init();
                 /* we are only using the one demodulator so set the other to 0 to turn it off */
-                if (*err==ERROR_NONE) *err=stv0910_init(config_cpy.sr_requested[config_cpy.sr_index],0);
+                if (*err==ERROR_NONE) *err=stv0910_init(config_cpy.sr_requested[config_cpy.sr_index],0,config_cpy.halfscan_ratio,0.0);
                 /* we only use one of the tuners in STV6120 so freq for tuner 2=0 to turn it off */
                 if (*err==ERROR_NONE) tuner_err=stv6120_init(config_cpy.freq_requested[config_cpy.freq_index],0,config_cpy.port_swap);
                 
