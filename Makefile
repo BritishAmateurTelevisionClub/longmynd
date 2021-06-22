@@ -28,7 +28,7 @@ COPT += -funsafe-math-optimizations
 CFLAGS += -Wall -Wextra -Wpedantic -Wunused -DVERSION=\"${VER}\" -pthread -D_GNU_SOURCE
 LDFLAGS += -lusb-1.0 -lm -lasound
 
-all: _print_banner ${BIN} fake_read
+all: _print_banner ${BIN} fake_read ts_analyse
 
 debug: COPT = -Og
 debug: CFLAGS += -ggdb -fno-omit-frame-pointer
@@ -43,6 +43,10 @@ _print_banner:
 fake_read: fake_read.c
 	@echo "  CC     "$@
 	@${CC} fake_read.c -o $@
+
+ts_analyse: ts_analyse.c libts.o
+	@echo "  CC     "$@
+	@${CC} ts_analyse.c libts.o -o $@
 
 $(BIN): ${OBJ}
 	@echo "  LD     "$@

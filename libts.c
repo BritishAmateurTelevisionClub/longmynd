@@ -24,6 +24,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <stdio.h>
+#include <inttypes.h>
 
 #include "libts.h"
 
@@ -100,9 +102,9 @@ static uint32_t ts_payload_crc;
 static uint32_t ts_payload_crc_c;
 
 /* PAT */
-//uint32_t ts_pat_programs_count;
-//uint32_t ts_pat_program_id;
-//uint32_t ts_pat_program_pid;
+uint32_t ts_pat_programs_count;
+uint32_t ts_pat_program_id;
+uint32_t ts_pat_program_pid;
 
 /* PMT */
 //uint32_t ts_pmt_pcr_pid;
@@ -116,10 +118,11 @@ static uint32_t ts_pmt_index;
 
 /* SDT */
 static uint8_t *ts_packet_sdt_table_ptr;
-//uint32_t service_id;
+uint32_t service_id;
 static uint8_t *ts_packet_sdt_descriptor_ptr;
-//uint32_t descriptor_tag;
-//uint32_t descriptor_length;
+uint32_t ts_packet_sdt_descriptor_loop_length;
+uint32_t descriptor_tag;
+uint32_t descriptor_length;
 static uint32_t service_provider_name_length;
 static uint32_t service_name_length;
 
@@ -127,7 +130,8 @@ void ts_parse(
     uint8_t *ts_buffer, uint32_t ts_buffer_length,
     void (*callback_sdt_service)(uint8_t *, uint32_t *, uint8_t *, uint32_t *),
     void (*callback_pmt_pids)(uint32_t *, uint32_t *, uint32_t *),
-    void (*callback_ts_stats)(uint32_t *, uint32_t *)
+    void (*callback_ts_stats)(uint32_t *, uint32_t *),
+    bool parse_verbose
 )
 {
     /* Reset Stats */
@@ -159,10 +163,21 @@ void ts_parse(
             }
         }
 
+        /*** Parse PID ***/
         ts_pid = (uint32_t)((ts_packet_ptr[1] & 0x1F) << 8) | (uint32_t)ts_packet_ptr[2];
     
         ts_packet_total_count++;
         
+        /* NULL/padding packets */
+        if(ts_pid == TS_PID_NULL)
+        {
+            ts_packet_null_count++;
+
+            ts_packet_ptr++;
+            continue;
+        }
+        
+        /*** Parse Headers to find payload ***/
         ts_payload_content_offset = 4;
 
         ts_adaption_field_flag = (uint32_t)(ts_packet_ptr[3] & 0x20) >> 5;
@@ -180,190 +195,42 @@ void ts_parse(
 
             ts_payload_content_offset += ts_adaption_field_length;
         }
-        
-        /* NULL/padding packets */
-        if(ts_pid == TS_PID_NULL)
-        {
-            ts_packet_null_count++;
 
+        ts_payload_offset = ts_payload_content_offset + 1 + ts_packet_ptr[ts_payload_content_offset];
+
+        if(ts_payload_offset >= (TS_PACKET_SIZE-3)) // '3' at least ensures that ptr[2] is still within the buffer.
+        {
+            /* Computed offset too large to be valid */
             ts_packet_ptr++;
             continue;
         }
 
-#if 0
-        if(ts_pid == TS_PID_PAT)
+        ts_payload_ptr = (uint8_t *)&ts_packet_ptr[ts_payload_offset];
+
+        ts_payload_section_length = ((uint32_t)(ts_payload_ptr[1] & 0x0F) << 8) | (uint32_t)ts_payload_ptr[2];
+
+        if(ts_payload_section_length < 1 || (ts_payload_offset + ts_payload_section_length) > TS_PACKET_SIZE)
         {
-            ts_payload_ptr = (uint8_t *)&ts_packet_ptr[ts_payload_content_offset + 1 + ts_packet_ptr[ts_payload_content_offset]];
-
-            if(ts_payload_ptr[0] != TS_TABLE_PAT)
-            {
-                ts_packet_ptr++;
-                continue;
-            }
-
-            ts_payload_section_length = ((uint32_t)(ts_payload_ptr[1] & 0x0F) << 8) | (uint32_t)ts_payload_ptr[2];
-
-            if(ts_payload_section_length < 1)
-            {
-                ts_packet_ptr++;
-                continue;
-            }
-
-            ts_payload_crc = ((uint32_t)ts_payload_ptr[ts_payload_section_length-1] << 24) | ((uint32_t)ts_payload_ptr[ts_payload_section_length] << 16)
-                            | ((uint32_t)ts_payload_ptr[ts_payload_section_length+1] << 8) | (uint32_t)ts_payload_ptr[ts_payload_section_length+2];
-
-            ts_payload_crc_c = crc32_mpeg2(ts_payload_ptr, (ts_payload_section_length-1));
-
-            if(ts_payload_crc != ts_payload_crc_c)
-            {
-                /* CRC Fail */
-                ts_packet_ptr++;
-                continue;
-            }
-
-            ts_pat_programs_count = (ts_payload_section_length - 9) / 4;
-
-            /* For now, only read the first programme */
-            /* TODO: Read all programs here to enable PID parsing of PMT */
-            if(ts_pat_programs_count > 0)
-            {
-                //ts_pat_program_id = ((uint32_t)ts_payload_ptr[8] << 8) | (uint32_t)ts_payload_ptr[9];
-                ts_pat_program_pid = ((uint32_t)(ts_payload_ptr[10] & 0x1F) << 8) | (uint32_t)ts_payload_ptr[11];
-                //printf(" - PAT Program PID: %"PRIu32"\n", ts_pat_program_pid);
-            }
-
+            /* TS Section length invalid, packet must be invalid */
             ts_packet_ptr++;
             continue;
         }
-#endif
-        if(ts_pid == TS_PID_SDT)
+
+        ts_payload_crc = ((uint32_t)ts_payload_ptr[ts_payload_section_length-1] << 24) | ((uint32_t)ts_payload_ptr[ts_payload_section_length] << 16)
+                        | ((uint32_t)ts_payload_ptr[ts_payload_section_length+1] << 8) | (uint32_t)ts_payload_ptr[ts_payload_section_length+2];
+
+        ts_payload_crc_c = crc32_mpeg2(ts_payload_ptr, (ts_payload_section_length-1));
+
+        if(ts_payload_crc != ts_payload_crc_c)
         {
-            ts_payload_content_length = 0;
-
-            ts_payload_offset = ts_payload_content_offset + 1 + ts_packet_ptr[ts_payload_content_offset];
-
-            if(ts_payload_offset >= (TS_PACKET_SIZE-3)) // '3' at least ensures that ptr[2] is still within the buffer.
-            {
-                /* Computed offset too large to be valid */
-                ts_packet_ptr++;
-                continue;
-            }
-
-            ts_payload_ptr = (uint8_t *)&ts_packet_ptr[ts_payload_offset];
-
-            if(ts_payload_ptr[0] != TS_TABLE_SDT)
-            {
-                ts_packet_ptr++;
-                continue;
-            }
-
-            ts_payload_section_length = ((uint32_t)(ts_payload_ptr[1] & 0x0F) << 8) | (uint32_t)ts_payload_ptr[2];
-            //printf(" - SDT Section Length: %"PRIu32"\n", ts_payload_section_length);
-
-            if(ts_payload_section_length < 1 || (ts_payload_offset + ts_payload_section_length) > TS_PACKET_SIZE)
-            {
-                /* TS Section length invalid */
-                ts_packet_ptr++;
-                continue;
-            }
-
-            ts_payload_crc = ((uint32_t)ts_payload_ptr[ts_payload_section_length-1] << 24) | ((uint32_t)ts_payload_ptr[ts_payload_section_length] << 16)
-                            | ((uint32_t)ts_payload_ptr[ts_payload_section_length+1] << 8) | (uint32_t)ts_payload_ptr[ts_payload_section_length+2];
-
-            ts_payload_crc_c = crc32_mpeg2(ts_payload_ptr, (ts_payload_section_length-1));
-
-            if(ts_payload_crc != ts_payload_crc_c)
-            {
-                /* CRC Fail */
-                ts_packet_ptr++;
-                continue;
-            }
-
-            /* Per service */
-            ts_packet_sdt_table_ptr = &ts_payload_ptr[11];
-            ts_payload_content_length += 11;
-
-            //service_id = ((uint32_t)ts_packet_sdt_table_ptr[0] << 8) | (uint32_t)ts_packet_sdt_table_ptr[1];
-            //printf(" - - Service ID: %"PRIu32"\n", service_id);
-
-            /* Per descriptor */
-            ts_packet_sdt_descriptor_ptr = &ts_packet_sdt_table_ptr[5];
-            ts_payload_content_length += 5;
-
-            //descriptor_tag = (uint32_t)ts_packet_sdt_descriptor_ptr[0];
-            //printf(" - - - Descriptor Tag: %"PRIu32"\n", descriptor_tag);
-
-            //descriptor_length = (uint32_t)ts_packet_sdt_descriptor_ptr[1];
-            //printf(" - - - Descriptor Length: %"PRIu32"\n", descriptor_length);
-
-            //uint32_t service_type = (uint32_t)ts_packet_sdt_descriptor_ptr[2];
-            //printf(" - - - Service Type %"PRIu32"\n", service_type);
-
-            ts_payload_content_length += 3;
-
-            service_provider_name_length = (uint32_t)ts_packet_sdt_descriptor_ptr[3];
-            //printf(" - - - Service Provider Name Length %"PRIu32"\n", service_provider_name_length);
-            //printf(" - - - Service Provider Name: %.*s\n", service_provider_name_length, &ts_packet_sdt_descriptor_ptr[4]);
-
-            service_name_length = (uint32_t)ts_packet_sdt_descriptor_ptr[3+1+service_provider_name_length];
-            //printf(" - - - Service Name Length %"PRIu32"\n", service_name_length);
-            //printf(" - - - Service Name: %.*s\n", service_name_length, &ts_packet_sdt_descriptor_ptr[4+1+service_provider_name_length]);
-
-            callback_sdt_service(
-                &ts_packet_sdt_descriptor_ptr[4],
-                &service_provider_name_length,
-                &ts_packet_sdt_descriptor_ptr[4+1+service_provider_name_length],
-                &service_name_length
-            );
-
-            ts_payload_content_length += 1;
-            ts_payload_content_length += service_provider_name_length;
-            ts_payload_content_length += 1;
-            ts_payload_content_length += service_name_length;
-
+            /* CRC Fail */
             ts_packet_ptr++;
             continue;
         }
-        else // if(ts_pat_program_pid !=0x00 && ts_pid == ts_pat_program_pid) /* PMT, once found in PAT */
+
+        if(ts_payload_ptr[0] == TS_TABLE_PMT)
         {
-            ts_payload_offset = ts_payload_content_offset + 1 + ts_packet_ptr[ts_payload_content_offset];
-
-            if(ts_payload_offset >= (TS_PACKET_SIZE-3)) // '3' at least ensures that ptr[2] is still within the buffer.
-            {
-                /* Computed offset too large to be valid */
-                ts_packet_ptr++;
-                continue;
-            }
-
-            ts_payload_ptr = (uint8_t *)&ts_packet_ptr[ts_payload_offset];
-
-            /* We're not filtering by PID here yet, so we rely on filtering by table ID */
-            if(ts_payload_ptr[0] != TS_TABLE_PMT)
-            {
-                ts_packet_ptr++;
-                continue;
-            }
-
-            ts_payload_section_length = ((uint32_t)(ts_payload_ptr[1] & 0x0F) << 8) | (uint32_t)ts_payload_ptr[2];
-
-            if(ts_payload_section_length < 1 || (ts_payload_offset + ts_payload_section_length) > TS_PACKET_SIZE)
-            {
-                /* TS Section length invalid */
-                ts_packet_ptr++;
-                continue;
-            }
-
-            ts_payload_crc = ((uint32_t)ts_payload_ptr[ts_payload_section_length-1] << 24) | ((uint32_t)ts_payload_ptr[ts_payload_section_length] << 16)
-                            | ((uint32_t)ts_payload_ptr[ts_payload_section_length+1] << 8) | (uint32_t)ts_payload_ptr[ts_payload_section_length+2];
-
-            ts_payload_crc_c = crc32_mpeg2(ts_payload_ptr, (ts_payload_section_length-1));
-
-            if(ts_payload_crc != ts_payload_crc_c)
-            {
-                /* CRC Fail */
-                ts_packet_ptr++;
-                continue;
-            }
+            if(parse_verbose) printf("## PMT at PID %"PRIu32"\n", ts_pid);
 
             //ts_pmt_pcr_pid = ((uint32_t)(ts_payload_ptr[8] & 0x1F) << 8) | (uint32_t)ts_payload_ptr[9];
             //printf(" - PMT: PCR PID: %"PRIu32"\n", ts_pmt_pcr_pid);
@@ -395,6 +262,88 @@ void ts_parse(
 
                 ts_pmt_offset += (5 + ts_pmt_es_info_length);
                 ts_pmt_index++;
+            }
+
+            ts_packet_ptr++;
+            continue;
+        }
+        else if(ts_payload_ptr[0] == TS_TABLE_PAT)
+        {
+            if(parse_verbose) printf("## PAT at PID %"PRIu32"\n", ts_pid);
+
+            ts_pat_programs_count = (ts_payload_section_length - 9) / 4;
+            if(parse_verbose) printf(" - PAT Program Count: %"PRIu32"\n", ts_pat_programs_count);
+
+            /* For now, only read the first programme */
+            /* TODO: Read all programs here to enable PID parsing of PMT */
+            for(uint32_t i = 0; i < ts_pat_programs_count; i++)
+            {
+                ts_pat_program_id = ((uint32_t)ts_payload_ptr[8+(i*4)] << 8) | (uint32_t)ts_payload_ptr[9+(i*4)];
+                ts_pat_program_pid = ((uint32_t)(ts_payload_ptr[10+(i*4)] & 0x1F) << 8) | (uint32_t)ts_payload_ptr[11+(i*4)];
+                if(parse_verbose) printf(" - PAT Program ID: %"PRIu32", PID: %"PRIu32"\n", ts_pat_program_id, ts_pat_program_pid);
+            }
+
+            ts_packet_ptr++;
+            continue;
+        }
+        else if(ts_payload_ptr[0] == TS_TABLE_SDT)
+        {
+            if(parse_verbose) printf("## SDT at PID %"PRIu32"\n", ts_pid);
+
+            if(parse_verbose) printf(" - SDT: ts_payload_section_length: %"PRIu32"\n", ts_payload_section_length);
+            ts_payload_content_length = 0;
+
+            /* Set pointer to start of first service table */
+            ts_packet_sdt_table_ptr = &ts_payload_ptr[11];
+            ts_payload_content_length += 11;
+
+            /* Per service */
+            while(ts_payload_content_length < ts_payload_section_length)
+            {
+                service_id = ((uint32_t)ts_packet_sdt_table_ptr[0] << 8) | (uint32_t)ts_packet_sdt_table_ptr[1];
+                if(parse_verbose) printf(" - - SDT: Service ID: %"PRIu32"\n", service_id);
+
+                ts_packet_sdt_descriptor_loop_length = ((uint32_t)(ts_packet_sdt_table_ptr[3] & 0x0F) << 8) | (uint32_t)ts_packet_sdt_table_ptr[4];
+                if(parse_verbose) printf(" - - SDT: Descriptors Loop Length: %"PRIu32"\n", ts_packet_sdt_descriptor_loop_length);
+
+                /* Per descriptor */
+                ts_packet_sdt_descriptor_ptr = &ts_packet_sdt_table_ptr[5];
+                ts_payload_content_length += 5;
+
+                descriptor_tag = (uint32_t)ts_packet_sdt_descriptor_ptr[0];
+                if(parse_verbose) printf(" - - - Descriptor Tag: %"PRIu32"\n", descriptor_tag);
+
+                descriptor_length = (uint32_t)ts_packet_sdt_descriptor_ptr[1];
+                if(parse_verbose) printf(" - - - Descriptor Length: %"PRIu32"\n", descriptor_length);
+
+                //uint32_t service_type = (uint32_t)ts_packet_sdt_descriptor_ptr[2];
+                //printf(" - - - Service Type %"PRIu32"\n", service_type);
+
+                ts_payload_content_length += 3;
+
+                service_provider_name_length = (uint32_t)ts_packet_sdt_descriptor_ptr[3];
+                //printf(" - - - Service Provider Name Length %"PRIu32"\n", service_provider_name_length);
+                //printf(" - - - Service Provider Name: %.*s\n", service_provider_name_length, &ts_packet_sdt_descriptor_ptr[4]);
+
+                service_name_length = (uint32_t)ts_packet_sdt_descriptor_ptr[3+1+service_provider_name_length];
+                //printf(" - - - Service Name Length %"PRIu32"\n", service_name_length);
+                //printf(" - - - Service Name: %.*s\n", service_name_length, &ts_packet_sdt_descriptor_ptr[4+1+service_provider_name_length]);
+
+                callback_sdt_service(
+                    &ts_packet_sdt_descriptor_ptr[4],
+                    &service_provider_name_length,
+                    &ts_packet_sdt_descriptor_ptr[4+1+service_provider_name_length],
+                    &service_name_length
+                );
+
+                ts_payload_content_length += 1;
+                ts_payload_content_length += service_provider_name_length;
+                ts_payload_content_length += 1;
+                ts_payload_content_length += service_name_length;
+
+                /* Set pointer to start of next service table */
+                ts_packet_sdt_table_ptr = &ts_payload_ptr[ts_payload_content_length];
+                ts_payload_content_length += 11;
             }
 
             ts_packet_ptr++;

@@ -244,7 +244,8 @@ void *loop_ts_parse(void *arg) {
             &ts_buffer[0], longmynd_ts_parse_buffer.length,
             &ts_callback_sdt_service,
             &ts_callback_pmt_pids,
-            &ts_callback_ts_stats
+            &ts_callback_ts_stats,
+            false
         );
 
         pthread_mutex_lock(&ts_longmynd_status->mutex);

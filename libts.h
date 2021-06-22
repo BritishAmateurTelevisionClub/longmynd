@@ -39,7 +39,8 @@ void ts_parse(
     uint8_t *ts_buffer, uint32_t ts_buffer_length,
     void (*callback_sdt_service)(uint8_t *, uint32_t *, uint8_t *, uint32_t *),
     void (*callback_pmt_pids)(uint32_t *, uint32_t *, uint32_t *),
-    void (*callback_ts_stats)(uint32_t *, uint32_t *)
+    void (*callback_ts_stats)(uint32_t *, uint32_t *),
+    bool parse_verbose
 );
 
 /*
