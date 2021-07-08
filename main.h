@@ -60,6 +60,7 @@
 #define STATUS_ERRORS_BCH_UNCORRECTED   23
 #define STATUS_LNB_SUPPLY         24
 #define STATUS_LNB_POLARISATION_H 25
+#define STATUS_AGC1_GAIN          26
 
 /* The number of constellation peeks we do for each background loop */
 #define NUM_CONSTELLATIONS 16
@@ -104,6 +105,7 @@ typedef struct {
     uint8_t demod_state;
     bool lna_ok;
     uint16_t lna_gain;
+    uint16_t agc1_gain;
     uint8_t power_i;
     uint8_t power_q;
     uint32_t frequency_requested;
